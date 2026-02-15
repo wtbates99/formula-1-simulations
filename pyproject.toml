@@ -6,5 +6,4 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "backoff>=2.2.1",
-    "fastf1>=3.8.1",
 ]
