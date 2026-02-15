@@ -6,11 +6,9 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
-
-import backoff
-
 
 API_BASE = "https://api.jolpi.ca/ergast/f1"
 
@@ -33,6 +31,7 @@ class JolpicaClient:
     def __init__(self, sleep_seconds: float = 0.2, max_retries: int = 5):
         self.sleep_seconds = sleep_seconds
         self.max_retries = max_retries
+        self._last_request_ts = 0.0
 
     def fetch_all(self, endpoint: str, page_size: int = 1000) -> dict[str, Any]:
         offset = 0
@@ -59,22 +58,58 @@ class JolpicaClient:
     def _request(self, endpoint: str, limit: int, offset: int) -> dict[str, Any]:
         url = f"{API_BASE}/{endpoint}.json?limit={limit}&offset={offset}"
         retriable = (urllib.error.HTTPError, urllib.error.URLError, TimeoutError)
+        last_exc: Exception | None = None
+        for attempt in range(1, self.max_retries + 1):
+            self._throttle()
+            try:
+                with urllib.request.urlopen(url, timeout=30) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            except retriable as exc:
+                last_exc = exc
+                if isinstance(exc, urllib.error.HTTPError) and self._should_give_up_http(exc):
+                    break
+                if attempt >= self.max_retries:
+                    break
+                delay = self._retry_delay_seconds(exc, attempt)
+                print(
+                    f"    retry {attempt}/{self.max_retries - 1} after {delay:.1f}s: {url}",
+                    flush=True,
+                )
+                time.sleep(delay)
+        raise RuntimeError(f"Failed to fetch {url}") from last_exc
 
-        @backoff.on_exception(
-            backoff.expo,
-            retriable,
-            max_tries=self.max_retries,
-            jitter=backoff.full_jitter,
-            giveup=self._should_give_up_http,
-        )
-        def _fetch_once() -> dict[str, Any]:
-            with urllib.request.urlopen(url, timeout=30) as resp:
-                return json.loads(resp.read().decode("utf-8"))
+    def _throttle(self) -> None:
+        if self.sleep_seconds <= 0:
+            return
+        now = time.monotonic()
+        elapsed = now - self._last_request_ts
+        if elapsed < self.sleep_seconds:
+            time.sleep(self.sleep_seconds - elapsed)
+        self._last_request_ts = time.monotonic()
 
+    def _retry_delay_seconds(self, exc: Exception, attempt: int) -> float:
+        # 429 responses may include Retry-After; prefer that when present.
+        if isinstance(exc, urllib.error.HTTPError) and exc.code == 429:
+            retry_after = self._parse_retry_after_seconds(exc)
+            if retry_after is not None:
+                return max(retry_after, self.sleep_seconds)
+        base = max(self.sleep_seconds, 0.5)
+        return min(60.0, base * (2**attempt))
+
+    @staticmethod
+    def _parse_retry_after_seconds(exc: urllib.error.HTTPError) -> float | None:
+        header = exc.headers.get("Retry-After")
+        if not header:
+            return None
         try:
-            return _fetch_once()
-        except retriable as exc:
-            raise RuntimeError(f"Failed to fetch {url}") from exc
+            return max(0.0, float(header))
+        except ValueError:
+            try:
+                retry_dt = parsedate_to_datetime(header)
+                now_dt = dt.datetime.now(retry_dt.tzinfo or dt.timezone.utc)
+                return max(0.0, (retry_dt - now_dt).total_seconds())
+            except (TypeError, ValueError, OverflowError):
+                return None
 
     @staticmethod
     def _should_give_up_http(exc: Exception) -> bool:
@@ -1003,7 +1038,7 @@ def parse_args() -> SyncConfig:
     parser.add_argument("--from-round", type=int, default=None, help="First round (inclusive) within each season")
     parser.add_argument("--to-round", type=int, default=None, help="Last round (inclusive) within each season")
     parser.add_argument("--sleep-seconds", type=float, default=0.2, help="Delay between paginated API requests")
-    parser.add_argument("--max-retries", type=int, default=5, help="Max request retries for transient network errors")
+    parser.add_argument("--max-retries", type=int, default=8, help="Max request retries for transient network errors")
     parser.add_argument("--skip-lap-times", action="store_true", help="Skip per-lap timing data ingestion")
     parser.add_argument("--skip-pit-stops", action="store_true", help="Skip pit stop data ingestion")
     parser.add_argument("--skip-feature-rebuild", action="store_true", help="Skip rebuilding materialized feature tables")

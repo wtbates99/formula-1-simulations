@@ -13,20 +13,24 @@ int main() {
         "FROM race_results rr "
         "JOIN races r ON rr.race_id = r.race_id "
         "JOIN drivers d ON rr.driver_id = d.driver_id "
-        "WHERE rr.position = 0 "
+        "WHERE rr.position = 1 "
         "ORDER BY r.season_year DESC, r.round DESC "
         "LIMIT 9;";
 
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
         return 1;
 
-    while (sqlite3_step(stmt) == SQLITE_ROW)
-        std::cout
-            << sqlite3_column_int(stmt, 0) << " R"
-            << sqlite3_column_int(stmt, 1) << " - "
-            << sqlite3_column_text(stmt, 2) << " P"
-            << sqlite3_column_int(stmt, 3) << " "
-            << sqlite3_column_text(stmt, 4) << '\n';
+    bool printed_any = false;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        printed_any = true;
+        for (int i = 0; i < sqlite3_column_count(stmt); i++) {
+            std::cout << sqlite3_column_text(stmt, i) << " ";
+        }
+        std::cout << '\n';
+    }
+
+    if (!printed_any)
+        std::cout << "No matching race results found.\n";
 
     sqlite3_finalize(stmt);
     sqlite3_close(db);
