@@ -1,53 +1,102 @@
-# F1 Historical SQLite Warehouse
+# F1 Simulations (C++)
 
-This project ingests historical Formula 1 data from Ergast/Jolpica and stores it in a local SQLite database you can read from C++.
+This repo is structured for two goals:
 
-## What gets stored
+1. Ingest high-detail telemetry from Jolpica/Ergast into SQLite.
+2. Run and visualize C++ race simulations you can expand into a full F1 sim stack.
 
-- Seasons and race calendar metadata
-- Circuits
-- Drivers
-- Constructors
-- Race results
-- Qualifying results
-- Sprint results
-- Driver standings after each round
-- Constructor standings after each round
-- Lap-by-lap timing data (default on)
-- Pit stop data (default on)
-- ML-oriented feature views and materialized feature tables
+## Project layout
 
-## Build the database
-
-Run from project root (lap times + pit stops included by default):
-
-```bash
-python main.py --db f1_history.db --from-year 1950 --to-year 2025
+```text
+.
+├── apps/
+│   ├── sim_cli.cpp          # terminal simulation example
+│   └── sim_viewer.cpp       # raylib graphics viewer example
+├── include/
+│   └── f1sim/
+│       ├── sim/simulator.hpp           # simulation interfaces and race model
+│       └── support/                    # scenario load, telemetry seed, replay logging
+├── src/
+│   ├── sim/simulator.cpp               # core race loop logic
+│   └── support/                        # shared app support modules
+├── examples/
+│   ├── scenarios/short_race.json       # scenario input template
+│   └── sql/leaderboard_query.sql       # telemetry query starter
+├── scripts/
+│   ├── setup_dev.sh         # apt packages for development
+│   ├── build.sh             # cmake build helper
+│   ├── run_cli_sim.sh       # run CLI simulation
+│   ├── run_viewer.sh        # run graphics viewer
+│   └── ingest_telemetry.sh  # ingest telemetry into SQLite
+├── CMakeLists.txt
+└── main.cpp                 # telemetry ingester target: telemetry_ingest
 ```
 
-Skip large tables if needed:
+## Telemetry tables
+
+`telemetry_ingest` writes detailed line-item tables:
+
+- `telemetry_lap_timings`
+  - `(season, round, lap, driver_id, position, lap_time, lap_time_ms)`
+- `telemetry_pit_stops`
+  - `(season, round, driver_id, stop, lap, pit_time_hms, duration, duration_ms)`
+
+Both tables use primary keys plus upserts, so re-runs are safe.
+
+Simulation replay logging writes:
+
+- `sim_replay_frames`: one row per car per frame snapshot
+- `sim_replay_pit_events`: pit event stream with tyre-compound transitions
+
+## Quick start
+
+Install dependencies:
 
 ```bash
-python main.py --db f1_history.db --from-year 1950 --to-year 2025 --skip-lap-times --skip-pit-stops
+./scripts/setup_dev.sh
 ```
 
-Notes:
-- Lap data can make the DB very large and ingestion slower.
-- You can re-run safely; tables use upserts.
-- Materialized feature tables are rebuilt by default after ingest; skip with `--skip-feature-rebuild`.
+Build:
 
-## Training features
+```bash
+./scripts/build.sh
+```
 
-- `v_driver_race_features`: query-time feature view.
-- `driver_race_features`: materialized snapshot table for faster C++ training loops.
-- `v_winner_features_best_driver` and `winner_features_best_driver`: focused on driver-skill winner prediction.
-- `v_winner_features_best_car` and `winner_features_best_car`: focused on car-strength winner prediction.
+Ingest telemetry for one race:
 
-Feature columns include:
-- race context: season, round, grid, constructor, standing positions/points
-- performance: finish position, points, laps, race time
-- pace/strategy: avg lap time, best lap time, pit stop count, pit total duration
-- rolling form: trailing 3-race and 5-race averages (finish, points)
-- target labels: finish position, points, podium flag, win flag
+```bash
+./scripts/ingest_telemetry.sh build-cmake 2024 1 telemetry.db 1000
+```
 
-Winner feature tables include pre-race standings, qualifying, and rolling win/podium/dnf rates for both driver-centric and car-centric models.
+Run simulation in terminal (loads scenario + telemetry seeding + replay logging):
+
+```bash
+./scripts/run_cli_sim.sh build-cmake --scenario examples/scenarios/short_race.json --telemetry-db telemetry.db --replay-db sim_replay.db --season 2024 --round 1 --tick 1.0
+```
+
+Run graphics viewer (requires `libraylib-dev`):
+
+```bash
+./scripts/run_viewer.sh build-cmake --scenario examples/scenarios/short_race.json --telemetry-db telemetry.db --replay-db sim_replay.db --season 2024 --round 1
+```
+
+## Current simulation features
+
+- Scenario JSON loading from `examples/scenarios/*.json`
+- Telemetry-driven driver parameter seeding from `telemetry_lap_timings`
+- Tyre compound model (`soft`, `medium`, `hard`) affecting pace and wear
+- Pit strategy model (planned laps + tyre-degradation fallback)
+- Replay logging to SQLite for frame and pit-event analysis
+
+## Example expansion path
+
+- Add weather and track evolution impacts on tyre wear and pace.
+- Add setup dimensions (drag/downforce) and overtaking model.
+- Add safety-car / VSC periods and incident probabilities.
+- Use replay tables as training labels for strategy optimization.
+
+## CMake targets
+
+- `telemetry_ingest`: pulls race telemetry and stores into SQLite.
+- `sim_cli`: simple race simulation in terminal.
+- `sim_viewer`: real-time visualization if raylib is installed.

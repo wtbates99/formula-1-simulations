@@ -1,0 +1,45 @@
+{
+  "name": "short_race_demo",
+  "track_length_m": 5412.0,
+  "total_laps": 12,
+  "dt_seconds": 0.0166666667,
+  "seed": 7,
+  "drivers": [
+    {
+      "id": "max_verstappen",
+      "team": "Red Bull",
+      "skill": 0.98,
+      "aggression": 0.92,
+      "consistency": 0.93,
+      "start_compound": "soft",
+      "planned_pit_laps": [5, 9]
+    },
+    {
+      "id": "leclerc",
+      "team": "Ferrari",
+      "skill": 0.92,
+      "aggression": 0.82,
+      "consistency": 0.88,
+      "start_compound": "soft",
+      "planned_pit_laps": [6, 10]
+    },
+    {
+      "id": "norris",
+      "team": "McLaren",
+      "skill": 0.90,
+      "aggression": 0.83,
+      "consistency": 0.86,
+      "start_compound": "medium",
+      "planned_pit_laps": [7]
+    },
+    {
+      "id": "hamilton",
+      "team": "Mercedes",
+      "skill": 0.92,
+      "aggression": 0.70,
+      "consistency": 0.91,
+      "start_compound": "medium",
+      "planned_pit_laps": [8]
+    }
+  ]
+}
