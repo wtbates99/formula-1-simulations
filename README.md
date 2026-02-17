@@ -22,19 +22,13 @@ This repo is structured for two goals:
 ├── examples/
 │   ├── scenarios/short_race.json       # scenario input template
 │   └── sql/leaderboard_query.sql       # telemetry query starter
-├── scripts/
-│   ├── setup_dev.sh         # apt packages for development
-│   ├── build.sh             # cmake build helper
-│   ├── run_cli_sim.sh       # run CLI simulation
-│   ├── run_viewer.sh        # run graphics viewer
-│   └── ingest_telemetry.sh  # ingest telemetry into SQLite
 ├── CMakeLists.txt
-└── main.cpp                 # telemetry ingester target: telemetry_ingest
+└── main.cpp                 # interactive CLI entrypoint target: f1_cli
 ```
 
 ## Telemetry tables
 
-`telemetry_ingest` writes detailed line-item tables:
+`f1_cli` telemetry ingest menu writes detailed line-item tables:
 
 - `telemetry_lap_timings`
   - `(season, round, lap, driver_id, position, lap_time, lap_time_ms)`
@@ -50,35 +44,24 @@ Simulation replay logging writes:
 
 ## Quick start
 
-Install dependencies:
-
-```bash
-./scripts/setup_dev.sh
-```
-
 Build:
 
 ```bash
-./scripts/build.sh
+cmake -S . -B build-cmake
+cmake --build build-cmake -j
 ```
 
-Ingest telemetry for one race:
+Run the interactive CLI:
 
 ```bash
-./scripts/ingest_telemetry.sh build-cmake 2024 1 telemetry.db 1000
+./build-cmake/f1_cli
 ```
 
-Run simulation in terminal (loads scenario + telemetry seeding + replay logging):
-
-```bash
-./scripts/run_cli_sim.sh build-cmake --scenario examples/scenarios/short_race.json --telemetry-db telemetry.db --replay-db sim_replay.db --season 2024 --round 1 --tick 1.0
-```
-
-Run graphics viewer (requires `libraylib-dev`):
-
-```bash
-./scripts/run_viewer.sh build-cmake --scenario examples/scenarios/short_race.json --telemetry-db telemetry.db --replay-db sim_replay.db --season 2024 --round 1
-```
+From the CLI menu, choose:
+- single-race ingest
+- full historical ingest (year range + all rounds)
+- text simulation (scenario + telemetry seeding + replay logging)
+- quick telemetry row counts
 
 ## Current simulation features
 
@@ -97,6 +80,5 @@ Run graphics viewer (requires `libraylib-dev`):
 
 ## CMake targets
 
-- `telemetry_ingest`: pulls race telemetry and stores into SQLite.
-- `sim_cli`: simple race simulation in terminal.
+- `f1_cli`: interactive entry point for ingest + text simulation + DB checks.
 - `sim_viewer`: real-time visualization if raylib is installed.

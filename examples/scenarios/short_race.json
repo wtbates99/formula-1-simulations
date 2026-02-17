@@ -1,7 +1,7 @@
 {
   "name": "short_race_demo",
   "track_length_m": 5412.0,
-  "total_laps": 12,
+  "total_laps": 4,
   "dt_seconds": 0.0166666667,
   "seed": 7,
   "drivers": [
@@ -12,7 +12,7 @@
       "aggression": 0.92,
       "consistency": 0.93,
       "start_compound": "soft",
-      "planned_pit_laps": [5, 9]
+      "planned_pit_laps": [1, 3]
     },
     {
       "id": "leclerc",
@@ -21,7 +21,7 @@
       "aggression": 0.82,
       "consistency": 0.88,
       "start_compound": "soft",
-      "planned_pit_laps": [6, 10]
+      "planned_pit_laps": [2, 4]
     },
     {
       "id": "norris",
@@ -30,7 +30,7 @@
       "aggression": 0.83,
       "consistency": 0.86,
       "start_compound": "medium",
-      "planned_pit_laps": [7]
+      "planned_pit_laps": [2]
     },
     {
       "id": "hamilton",
@@ -39,7 +39,7 @@
       "aggression": 0.70,
       "consistency": 0.91,
       "start_compound": "medium",
-      "planned_pit_laps": [8]
+      "planned_pit_laps": [3]
     }
   ]
 }

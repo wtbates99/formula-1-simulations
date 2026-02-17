@@ -12,17 +12,17 @@ build: configure
 	cmake --build $(BUILD_DIR) -j
 
 cli: build
-	$(BUILD_DIR)/sim_cli
+	$(BUILD_DIR)/f1_cli
 
 viewer: build
 	$(BUILD_DIR)/sim_viewer
 
 ingest: build
-	$(BUILD_DIR)/telemetry_ingest --season 2024 --round 1 --page-size 1000 --db telemetry.db
+	$(BUILD_DIR)/f1_cli
 
 legacy:
 	mkdir -p build
-	g++ -O2 -Wall -Wextra -std=c++17 main.cpp -o build/f1 -lsqlite3 -lcurl
+	g++ -O2 -Wall -Wextra -std=c++17 -Iinclude main.cpp -o build/f1_cli -lsqlite3 -lcurl
 
 clean:
 	rm -rf $(BUILD_DIR) build

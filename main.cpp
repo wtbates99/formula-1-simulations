@@ -1,7 +1,13 @@
 #include <curl/curl.h>
 #include <sqlite3.h>
 
+#include "f1sim/sim/simulator.hpp"
+#include "f1sim/support/replay_logger.hpp"
+#include "f1sim/support/scenario_loader.hpp"
+#include "f1sim/support/telemetry_seed.hpp"
+
 #include <cstdlib>
+#include <iomanip>
 #include <iostream>
 #include <regex>
 #include <string>
@@ -37,7 +43,11 @@ struct PageMeta {
 struct AppConfig {
     int season = 2024;
     int round = 1;
+    int from_year = -1;
+    int to_year = -1;
     int page_size = 1000;
+    bool all_rounds = false;
+    bool continue_on_error = false;
     std::string db_path = "f1_history.db";
 };
 
@@ -56,44 +66,31 @@ bool parse_int(const std::string& raw, int* out) {
     return true;
 }
 
-void print_usage(const char* bin) {
-    std::cout << "Usage: " << bin << " [--season N] [--round N] [--page-size N] [--db PATH]\n";
+std::string prompt_line(const std::string& label, const std::string& default_value) {
+    std::cout << label << " [" << default_value << "]: ";
+    std::string line;
+    std::getline(std::cin, line);
+    if (line.empty()) return default_value;
+    return line;
 }
 
-bool parse_args(int argc, char** argv, AppConfig* cfg) {
-    for (int i = 1; i < argc; ++i) {
-        const std::string arg = argv[i];
-        auto read_value = [&](const std::string& flag) -> const char* {
-            if (i + 1 >= argc) {
-                std::cerr << "Missing value for " << flag << "\n";
-                return nullptr;
-            }
-            return argv[++i];
-        };
-
-        if (arg == "--season") {
-            const char* v = read_value(arg);
-            if (!v || !parse_int(v, &cfg->season)) return false;
-        } else if (arg == "--round") {
-            const char* v = read_value(arg);
-            if (!v || !parse_int(v, &cfg->round)) return false;
-        } else if (arg == "--page-size") {
-            const char* v = read_value(arg);
-            if (!v || !parse_int(v, &cfg->page_size)) return false;
-        } else if (arg == "--db") {
-            const char* v = read_value(arg);
-            if (!v) return false;
-            cfg->db_path = v;
-        } else if (arg == "--help" || arg == "-h") {
-            print_usage(argv[0]);
-            return false;
-        } else {
-            std::cerr << "Unknown argument: " << arg << "\n";
-            return false;
-        }
+int prompt_int(const std::string& label, int default_value) {
+    while (true) {
+        const std::string raw = prompt_line(label, std::to_string(default_value));
+        int value = default_value;
+        if (parse_int(raw, &value)) return value;
+        std::cout << "Please enter a valid integer.\n";
     }
-    if (cfg->page_size < 1) cfg->page_size = 1000;
-    return true;
+}
+
+double prompt_double(const std::string& label, double default_value) {
+    while (true) {
+        const std::string raw = prompt_line(label, std::to_string(default_value));
+        char* end = nullptr;
+        const double value = std::strtod(raw.c_str(), &end);
+        if (end != raw.c_str() && *end == '\0') return value;
+        std::cout << "Please enter a valid number.\n";
+    }
 }
 
 bool http_get(const std::string& url, std::string* out_body) {
@@ -212,51 +209,67 @@ bool exec_sql(sqlite3* db, const char* sql) {
     return true;
 }
 
-int main(int argc, char** argv) {
-    AppConfig cfg;
-    if (!parse_args(argc, argv, &cfg)) return 1;
+int fetch_round_count_for_season(int season) {
+    const std::string season_url =
+        "https://api.jolpi.ca/ergast/f1/" + std::to_string(season) + ".json?limit=1000&offset=0";
+    std::string body;
+    if (!http_get(season_url, &body)) return -1;
 
+    const std::regex round_re(R"REGEX("round"\s*:\s*"(\d+)")REGEX");
+    auto begin = std::sregex_iterator(body.begin(), body.end(), round_re);
+    auto end = std::sregex_iterator();
+
+    int max_round = 0;
+    for (auto it = begin; it != end; ++it) {
+        int round = 0;
+        if (!parse_int((*it)[1].str(), &round)) continue;
+        if (round > max_round) max_round = round;
+    }
+    return max_round;
+}
+
+bool ingest_single_race(const AppConfig& cfg, int season, int round, int* inserted_laps, int* inserted_pits) {
     std::vector<LapTimingRow> all_lap_rows;
     for (int offset = 0;;) {
-        const std::string lap_url = "https://api.jolpi.ca/ergast/f1/" + std::to_string(cfg.season) + "/" +
-                                    std::to_string(cfg.round) + "/laps.json?limit=" + std::to_string(cfg.page_size) +
+        const std::string lap_url = "https://api.jolpi.ca/ergast/f1/" + std::to_string(season) + "/" +
+                                    std::to_string(round) + "/laps.json?limit=" + std::to_string(cfg.page_size) +
                                     "&offset=" + std::to_string(offset);
         std::string body;
         if (!http_get(lap_url, &body)) {
             std::cerr << "Failed to fetch lap telemetry API: " << lap_url << "\n";
-            return 1;
+            return false;
         }
         PageMeta meta;
         if (!extract_page_meta(body, &meta) || meta.limit < 1) {
             std::cerr << "Could not read valid pagination metadata from laps response.\n";
-            return 1;
+            return false;
         }
-        const auto batch_rows = parse_lap_timings(body, cfg.season, cfg.round);
+        const auto batch_rows = parse_lap_timings(body, season, round);
         all_lap_rows.insert(all_lap_rows.end(), batch_rows.begin(), batch_rows.end());
         if (meta.offset + meta.limit >= meta.total) break;
         offset = meta.offset + meta.limit;
     }
     if (all_lap_rows.empty()) {
-        std::cerr << "No lap timing telemetry found.\n";
-        return 1;
+        std::cerr << "No lap timing telemetry found for season " << season << " round " << round << ".\n";
+        return false;
     }
 
     std::vector<PitStopRow> all_pit_rows;
     for (int offset = 0;;) {
-        const std::string pit_url = "https://api.jolpi.ca/ergast/f1/" + std::to_string(cfg.season) + "/" +
-                                    std::to_string(cfg.round) + "/pitstops.json?limit=" + std::to_string(cfg.page_size) +
+        const std::string pit_url = "https://api.jolpi.ca/ergast/f1/" + std::to_string(season) + "/" +
+                                    std::to_string(round) + "/pitstops.json?limit=" + std::to_string(cfg.page_size) +
                                     "&offset=" + std::to_string(offset);
         std::string body;
         if (!http_get(pit_url, &body)) {
             std::cerr << "Failed to fetch pit-stop telemetry API: " << pit_url << "\n";
-            return 1;
+            return false;
         }
         PageMeta meta;
         if (!extract_page_meta(body, &meta) || meta.limit < 1) {
             std::cerr << "Could not read valid pagination metadata from pit-stops response.\n";
-            return 1;
+            return false;
         }
-        const auto batch_rows = parse_pit_stops(body, cfg.season, cfg.round);
+        const auto batch_rows = parse_pit_stops(body, season, round);
         all_pit_rows.insert(all_pit_rows.end(), batch_rows.begin(), batch_rows.end());
         if (meta.offset + meta.limit >= meta.total) break;
         offset = meta.offset + meta.limit;
@@ -265,7 +278,7 @@ int main(int argc, char** argv) {
     sqlite3* db = nullptr;
     if (sqlite3_open(cfg.db_path.c_str(), &db) != SQLITE_OK) {
         std::cerr << "Failed to open db: " << sqlite3_errmsg(db) << "\n";
-        return 1;
+        return false;
     }
 
     const char* create_lap_sql = R"SQL(
@@ -296,7 +309,7 @@ int main(int argc, char** argv) {
 
     if (!exec_sql(db, create_lap_sql) || !exec_sql(db, create_pit_sql) || !exec_sql(db, "BEGIN;")) {
         sqlite3_close(db);
-        return 1;
+        return false;
     }
 
     const char* insert_lap_sql = R"SQL(
@@ -326,10 +339,10 @@ int main(int argc, char** argv) {
         if (lap_stmt) sqlite3_finalize(lap_stmt);
         if (pit_stmt) sqlite3_finalize(pit_stmt);
         sqlite3_close(db);
-        return 1;
+        return false;
     }
 
-    int inserted_laps = 0;
+    *inserted_laps = 0;
     for (const auto& row : all_lap_rows) {
         sqlite3_bind_int(lap_stmt, 1, row.season);
         sqlite3_bind_int(lap_stmt, 2, row.round);
@@ -339,12 +352,12 @@ int main(int argc, char** argv) {
         sqlite3_bind_text(lap_stmt, 6, row.lap_time.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_int(lap_stmt, 7, row.lap_time_ms);
 
-        if (sqlite3_step(lap_stmt) == SQLITE_DONE) inserted_laps++;
+        if (sqlite3_step(lap_stmt) == SQLITE_DONE) (*inserted_laps)++;
         sqlite3_reset(lap_stmt);
         sqlite3_clear_bindings(lap_stmt);
     }
 
-    int inserted_pits = 0;
+    *inserted_pits = 0;
     for (const auto& row : all_pit_rows) {
         sqlite3_bind_int(pit_stmt, 1, row.season);
         sqlite3_bind_int(pit_stmt, 2, row.round);
@@ -355,7 +368,7 @@ int main(int argc, char** argv) {
         sqlite3_bind_text(pit_stmt, 7, row.duration.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_int(pit_stmt, 8, row.duration_ms);
 
-        if (sqlite3_step(pit_stmt) == SQLITE_DONE) inserted_pits++;
+        if (sqlite3_step(pit_stmt) == SQLITE_DONE) (*inserted_pits)++;
         sqlite3_reset(pit_stmt);
         sqlite3_clear_bindings(pit_stmt);
     }
@@ -364,11 +377,177 @@ int main(int argc, char** argv) {
     sqlite3_finalize(pit_stmt);
     if (!exec_sql(db, "COMMIT;")) {
         sqlite3_close(db);
-        return 1;
+        return false;
     }
     sqlite3_close(db);
+    return true;
+}
 
-    std::cout << "Stored " << inserted_laps << " lap timing rows and " << inserted_pits << " pit-stop rows into "
-              << cfg.db_path << "\n";
+void run_single_race_ingest() {
+    AppConfig cfg;
+    cfg.db_path = prompt_line("SQLite DB path", "telemetry.db");
+    cfg.season = prompt_int("Season", 2024);
+    cfg.round = prompt_int("Round", 1);
+    cfg.page_size = prompt_int("Page size", 1000);
+
+    int laps = 0;
+    int pits = 0;
+    if (!ingest_single_race(cfg, cfg.season, cfg.round, &laps, &pits)) {
+        std::cout << "Ingest failed.\n";
+        return;
+    }
+    std::cout << "Stored " << laps << " lap timings and " << pits << " pit stops into " << cfg.db_path << "\n";
+}
+
+void run_full_ingest() {
+    AppConfig cfg;
+    cfg.db_path = prompt_line("SQLite DB path", "telemetry.db");
+    cfg.from_year = prompt_int("From year", 1950);
+    cfg.to_year = prompt_int("To year", 2025);
+    cfg.page_size = prompt_int("Page size", 1000);
+    cfg.continue_on_error = true;
+    const std::string coe = prompt_line("Continue on errors? (y/n)", "y");
+    if (!coe.empty() && (coe[0] == 'n' || coe[0] == 'N')) cfg.continue_on_error = false;
+
+    int total_laps = 0;
+    int total_pits = 0;
+    int races_ok = 0;
+    int races_failed = 0;
+    for (int season = cfg.from_year; season <= cfg.to_year; ++season) {
+        const int rounds = fetch_round_count_for_season(season);
+        if (rounds < 1) {
+            std::cout << "Season " << season << ": could not determine rounds.\n";
+            races_failed++;
+            if (!cfg.continue_on_error) break;
+            continue;
+        }
+        std::cout << "Season " << season << ": " << rounds << " rounds\n";
+        for (int round = 1; round <= rounds; ++round) {
+            int laps = 0;
+            int pits = 0;
+            std::cout << "  Ingesting round " << round << "... ";
+            if (!ingest_single_race(cfg, season, round, &laps, &pits)) {
+                std::cout << "failed\n";
+                races_failed++;
+                if (!cfg.continue_on_error) break;
+                continue;
+            }
+            std::cout << "ok (" << laps << " laps, " << pits << " pits)\n";
+            total_laps += laps;
+            total_pits += pits;
+            races_ok++;
+        }
+        if (races_failed > 0 && !cfg.continue_on_error) break;
+    }
+    std::cout << "Done. Races ok: " << races_ok << ", failed: " << races_failed << ", rows: " << total_laps
+              << " lap timings, " << total_pits << " pit stops.\n";
+}
+
+void run_simulation_text_mode() {
+    f1sim::SimConfig config;
+    std::vector<f1sim::DriverProfile> drivers = f1sim::build_demo_grid();
+
+    const std::string scenario = prompt_line("Scenario path", "examples/scenarios/short_race.json");
+    const std::string telemetry_db = prompt_line("Telemetry DB path", "telemetry.db");
+    const std::string replay_db = prompt_line("Replay DB path", "sim_replay.db");
+    const int season = prompt_int("Season for telemetry seeding", 2024);
+    const int round = prompt_int("Round for telemetry seeding", 1);
+    const double tick_seconds = prompt_double("Tick seconds per print", 5.0);
+
+    std::string err;
+    if (!f1sim::support::load_scenario_json(scenario, &config, &drivers, &err)) {
+        std::cout << "Scenario load failed: " << err << "\n";
+        return;
+    }
+    if (!f1sim::support::apply_telemetry_seed(telemetry_db, season, round, &drivers, &err)) {
+        std::cout << "Telemetry seed warning: " << err << "\n";
+    }
+
+    f1sim::RaceSimulator sim(config, drivers);
+    f1sim::support::ReplayLogger logger;
+    if (!logger.open(replay_db, "interactive_sim_s" + std::to_string(season) + "_r" + std::to_string(round), &err)) {
+        std::cout << "Replay logger warning: " << err << "\n";
+    }
+
+    int frame_idx = 0;
+    while (!sim.all_finished()) {
+        sim.run_for(tick_seconds);
+        frame_idx++;
+        logger.log_frame(sim, frame_idx, &err);
+        logger.log_new_pit_events(sim, &err);
+
+        const auto board = sim.leaderboard();
+        std::cout << "\nT+" << static_cast<int>(sim.simulation_time_seconds()) << "s lap " << sim.leader_lap() << "/"
+                  << config.total_laps << "\n";
+        std::cout << "pos driver            lap speed(km/h) tyre fuel cmp pits\n";
+        for (std::size_t i = 0; i < board.size() && i < 6; ++i) {
+            const auto& c = board[i];
+            std::cout << std::setw(3) << (i + 1) << " " << std::left << std::setw(16) << c.id << std::right << " "
+                      << std::setw(3) << c.lap << " " << std::setw(10) << std::fixed << std::setprecision(1)
+                      << (c.speed_mps * 3.6) << " " << std::setw(4) << std::setprecision(2) << c.tyre << " "
+                      << std::setw(4) << c.fuel << " " << std::setw(6) << f1sim::to_string(c.compound) << " "
+                      << std::setw(3) << c.pit_stops << "\n";
+        }
+    }
+    std::cout << "\nSimulation complete.\n";
+}
+
+void show_quick_db_counts() {
+    const std::string db_path = prompt_line("SQLite DB path", "telemetry.db");
+    sqlite3* db = nullptr;
+    if (sqlite3_open(db_path.c_str(), &db) != SQLITE_OK) {
+        std::cout << "Failed to open DB.\n";
+        return;
+    }
+
+    const char* sql = R"SQL(
+        SELECT
+          (SELECT COUNT(*) FROM telemetry_lap_timings),
+          (SELECT COUNT(*) FROM telemetry_pit_stops);
+    )SQL";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        std::cout << "Failed to query DB.\n";
+        sqlite3_close(db);
+        return;
+    }
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const int laps = sqlite3_column_int(stmt, 0);
+        const int pits = sqlite3_column_int(stmt, 1);
+        std::cout << "telemetry_lap_timings rows: " << laps << "\n";
+        std::cout << "telemetry_pit_stops rows: " << pits << "\n";
+    }
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+}
+
+int main() {
+    std::cout << "F1 CLI\n";
+    std::cout << "Type a menu number and press Enter.\n";
+    while (true) {
+        std::cout << "\n--- Main Menu ---\n";
+        std::cout << "1) Ingest one race telemetry\n";
+        std::cout << "2) Full telemetry pull (year range, all rounds)\n";
+        std::cout << "3) Run text simulation\n";
+        std::cout << "4) Show telemetry row counts\n";
+        std::cout << "5) Exit\n";
+        std::cout << "> ";
+        std::string choice;
+        std::getline(std::cin, choice);
+        if (choice == "1") {
+            run_single_race_ingest();
+        } else if (choice == "2") {
+            run_full_ingest();
+        } else if (choice == "3") {
+            run_simulation_text_mode();
+        } else if (choice == "4") {
+            show_quick_db_counts();
+        } else if (choice == "5" || choice == "q" || choice == "quit" || choice == "exit") {
+            break;
+        } else {
+            std::cout << "Unknown choice. Use 1-5.\n";
+        }
+    }
+    std::cout << "Bye.\n";
     return 0;
 }

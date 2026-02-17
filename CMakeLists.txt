@@ -24,11 +24,8 @@ add_library(f1sim_support
 target_include_directories(f1sim_support PUBLIC include)
 target_link_libraries(f1sim_support PUBLIC f1sim_core SQLite::SQLite3)
 
-add_executable(sim_cli apps/sim_cli.cpp)
-target_link_libraries(sim_cli PRIVATE f1sim_core f1sim_support SQLite::SQLite3)
-
-add_executable(telemetry_ingest main.cpp)
-target_link_libraries(telemetry_ingest PRIVATE SQLite::SQLite3 CURL::libcurl)
+add_executable(f1_cli main.cpp)
+target_link_libraries(f1_cli PRIVATE f1sim_support SQLite::SQLite3 CURL::libcurl)
 
 if(F1SIM_BUILD_VIEWER)
     find_package(raylib QUIET)
