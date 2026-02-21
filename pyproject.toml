@@ -6,5 +6,6 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "fastf1>=3.8.1",
+    "matplotlib>=3.10.8",
     "mlflow>=3.10.0",
 ]
