@@ -1,0 +1,31 @@
+{
+  "mass_kg": 798.0,
+  "wheelbase_m": 3.6,
+  "cg_to_front_m": 1.6,
+  "cg_to_rear_m": 2.0,
+  "tire_radius_m": 0.34,
+  "mu_long": 1.85,
+  "mu_lat": 2.1,
+  "cdA": 1.12,
+  "clA": 3.2,
+  "rolling_resistance": 180.0,
+  "brake_force_max_n": 18500.0,
+  "steer_gain": 0.22,
+  "powertrain": {
+    "gear_ratios": [3.18, 2.31, 1.79, 1.45, 1.22, 1.05, 0.92, 0.82],
+    "gear_count": 8,
+    "final_drive": 3.05,
+    "driveline_efficiency": 0.92,
+    "shift_rpm_up": 11800.0,
+    "shift_rpm_down": 6200.0,
+    "torque_curve": [
+      [4000.0, 510.0],
+      [6000.0, 640.0],
+      [8000.0, 760.0],
+      [9500.0, 810.0],
+      [11000.0, 780.0],
+      [12000.0, 730.0],
+      [13000.0, 640.0]
+    ]
+  }
+}

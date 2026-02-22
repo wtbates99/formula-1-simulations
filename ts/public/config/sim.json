@@ -1,0 +1,6 @@
+{
+  "fixed_dt": 0.004166666666666667,
+  "max_cars": 20,
+  "replay_capacity_steps": 120000,
+  "active_cars": 8
+}
