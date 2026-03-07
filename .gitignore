@@ -1,4 +1,5 @@
 # OS / Editor
+*.duckdb*
 .DS_Store
 Thumbs.db
 .idea/

@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import argparse
-import sqlite3
 from collections import defaultdict
 from typing import Literal
 
+import duckdb
 import fastf1
 import pandas as pd
 
 YEAR: int = 2025
 GP_ROUND: int | None = None
 SESSION_INDICATOR: Literal["FP1", "FP2", "FP3", "Q", "R"] | None = None
-DB_PATH = "f1.sqlite"
+DB_PATH = "f1.duckdb"
 SESSION_TYPES: tuple[Literal["FP1", "FP2", "FP3", "Q", "R"], ...] = (
     "FP1",
     "FP2",
@@ -21,20 +21,16 @@ SESSION_TYPES: tuple[Literal["FP1", "FP2", "FP3", "Q", "R"], ...] = (
 )
 
 
-def _normalize_for_sqlite(df: pd.DataFrame) -> pd.DataFrame:
+def _normalize_for_duckdb(df: pd.DataFrame) -> pd.DataFrame:
+    """Convert columns to DuckDB-friendly types."""
     out = df.copy()
     for col in out.columns:
         series = out[col]
         if pd.api.types.is_timedelta64_dtype(series):
             out[col] = series.dt.total_seconds()
-            continue
-        if pd.api.types.is_datetime64_any_dtype(series):
-            out[col] = series.dt.strftime("%Y-%m-%dT%H:%M:%S.%f%z")
-            continue
-        if pd.api.types.is_bool_dtype(series):
+        elif pd.api.types.is_bool_dtype(series):
             out[col] = series.astype("Int64")
-            continue
-        if series.dtype == "object":
+        elif pd.api.types.is_object_dtype(series):
             out[col] = series.map(
                 lambda value: (
                     value.total_seconds()
@@ -49,15 +45,17 @@ def _normalize_for_sqlite(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def _write_tables_to_sqlite(tables: dict[str, pd.DataFrame], db_path: str = DB_PATH) -> None:
-    with sqlite3.connect(db_path) as con:
-        for table_name, dataframe in tables.items():
-            _normalize_for_sqlite(dataframe).to_sql(
-                table_name,
-                con,
-                if_exists="replace",
-                index=False,
-            )
+def _write_tables_to_duckdb(tables: dict[str, pd.DataFrame], db_path: str = DB_PATH) -> None:
+    """Write tables to DuckDB using native DuckDB SQL for speed and safety."""
+    con = duckdb.connect(db_path)
+    for table_name, dataframe in tables.items():
+        if dataframe.empty:
+            continue  # skip empty tables
+        df = _normalize_for_duckdb(dataframe)
+        con.execute(f"DROP TABLE IF EXISTS {table_name}")
+        con.register("tmp_df", df)
+        con.execute(f"CREATE TABLE {table_name} AS SELECT * FROM tmp_df")
+    con.close()
 
 
 def _build_lap_features(session_laps: pd.DataFrame) -> pd.DataFrame:
@@ -128,9 +126,7 @@ def ingest_fastf1_data(
                 session = fastf1.get_session(year, round_number, session_type)
                 session.load(laps=True, telemetry=True, weather=True, messages=True)
             except Exception as error:
-                print(
-                    f"Skipping {year} R{round_number} {session_type}: {error}"
-                )
+                print(f"Skipping {year} R{round_number} {session_type}: {error}")
                 continue
 
             context = {
@@ -213,14 +209,16 @@ def ingest_fastf1_data(
                 tables["position_telemetry"].append(position_data)
 
     return {
-        table_name: pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+        table_name: pd.concat([f for f in frames if not f.empty], ignore_index=True)
+        if frames
+        else pd.DataFrame()
         for table_name, frames in tables.items()
     }
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Ingest FastF1 data into SQLite for analysis, visualization, and simulation."
+        description="Ingest FastF1 data into DuckDB for analysis, visualization, and simulation."
     )
     parser.add_argument("--year", type=int, default=YEAR, help="Season year (e.g. 2025)")
     parser.add_argument(
@@ -242,7 +240,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Ignore --session and ingest FP1/FP2/FP3/Q/R",
     )
-    parser.add_argument("--db-path", default=DB_PATH, help="SQLite database path")
+    parser.add_argument("--db-path", default=DB_PATH, help="DuckDB database path")
     return parser.parse_args()
 
 
@@ -254,7 +252,7 @@ if __name__ == "__main__":
         gp_round=args.gp_round,
         session_indicator=session_indicator,
     )
-    _write_tables_to_sqlite(data, db_path=args.db_path)
+    _write_tables_to_duckdb(data, db_path=args.db_path)
     print("Ingestion complete.")
     for table_name, df in data.items():
         print(f"{table_name}: {len(df):,} rows")
