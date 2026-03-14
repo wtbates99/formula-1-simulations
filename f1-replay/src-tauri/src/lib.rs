@@ -3,6 +3,7 @@ mod interpolate;
 mod heatmap;
 mod session;
 mod simulation;
+mod telemetry_analysis;
 mod commands;
 
 use parking_lot::Mutex;
@@ -25,6 +26,8 @@ pub fn run() {
             commands::get_driver_meta,
             commands::run_simulation,
             commands::compare_drivers_cmd,
+            commands::compare_laps_cmd,
+            commands::get_aero_fit_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

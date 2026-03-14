@@ -1,8 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { SceneManager } from '$lib/scene/SceneManager';
-  import { TrackRenderer } from '$lib/scene/TrackRenderer';
-  import { CarRenderer } from '$lib/scene/CarRenderer';
+  import { Canvas2DRenderer } from '$lib/scene/Canvas2DRenderer';
   import type { DriverFrame, DriverMeta, SessionInfo, TrackLayout } from '$lib/commands';
   import {
     getSessions,
@@ -21,9 +19,7 @@
   let canvas: HTMLCanvasElement;
   let containerEl: HTMLDivElement;
 
-  const sm = new SceneManager();
-  const trackRenderer = new TrackRenderer();
-  const carRenderer = new CarRenderer();
+  const renderer = new Canvas2DRenderer();
 
   // ── State ─────────────────────────────────────────────────────────────────
   let sessions: SessionInfo[] = [];
@@ -58,23 +54,25 @@
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
   onMount(() => {
-    // Init with actual container dimensions (layout is ready by onMount)
+    // Set canvas pixel size to match container
     const r = containerEl.getBoundingClientRect();
-    sm.init(canvas, r.width || 1200, r.height || 800);
-    carRenderer.init(sm.scene, sm);
+    canvas.width  = r.width  || 1200;
+    canvas.height = r.height || 800;
+    renderer.init(canvas);
 
-    // Resize observer — keeps canvas in sync with container
     const ro = new ResizeObserver((entries) => {
       const { width, height } = entries[0].contentRect;
-      if (width > 0 && height > 0) sm.resize(width, height);
+      if (width > 0 && height > 0) {
+        canvas.width  = width;
+        canvas.height = height;
+        renderer.resize(width, height);
+      }
     });
     ro.observe(containerEl);
 
-    // Load session list
     getSessions()
       .then((s) => {
         sessions = s;
-        // Auto-load Las Vegas GP Race
         const lvgp = s.find(
           (x) => x.event_name.toLowerCase().includes('las vegas') && x.session === 'R'
         );
@@ -82,7 +80,6 @@
       })
       .catch((e) => console.error('getSessions failed:', e));
 
-    // Start animation loop
     lastRafTime = performance.now();
     rafId = requestAnimationFrame(animLoop);
 
@@ -97,33 +94,32 @@
     if (isLoading) return;
     isLoading = true;
     loadError = '';
-    loadingMsg = 'Loading telemetry data — this takes ~30s first load…';
+    loadingMsg = 'Loading telemetry — first load ~30s…';
     selectedSession = info;
     currentDrivers = [];
 
     try {
-      layout = await loadSessionCmd(info.event_name, info.session);   // camelCase handled inside loadSessionCmd
-      sm.setTrackBounds(layout.x_min, layout.x_max, layout.y_min, layout.y_max);
+      layout = await loadSessionCmd(info.event_name, info.session);
+      renderer.setTrackBounds(layout.x_min, layout.x_max, layout.y_min, layout.y_max);
+      renderer.setCenterLine(layout.center_line);
       duration = layout.duration_s;
       currentTime = 0;
       isPlaying = false;
 
       loadingMsg = 'Building speed heatmap…';
       const heatmap = await getSpeedHeatmap();
-      trackRenderer.buildHeatmap(heatmap, sm.scene, sm);
-      trackRenderer.buildTrackOutline(layout.center_line, sm.scene, sm);
+      renderer.setHeatmap(heatmap);
 
       loadingMsg = 'Setting up drivers…';
       driverMeta = await getDriverMeta();
       teamMap = Object.fromEntries(driverMeta.map((d) => [d.driver_number, d.team]));
       abbrMap = Object.fromEntries(driverMeta.map((d) => [d.driver_number, d.abbreviation]));
-      carRenderer.setupDrivers(driverMeta.map((d) => d.driver_number), teamMap);
+      renderer.setupDrivers(driverMeta.map((d) => d.driver_number), abbrMap, teamMap);
 
-      // ── Fetch initial frame so cars appear immediately ──────────────────
       loadingMsg = 'Rendering first frame…';
       const fd = await getFrame(0);
       currentDrivers = fd.drivers;
-      carRenderer.update(fd.drivers);
+      renderer.update(fd.drivers);
 
     } catch (e: any) {
       loadError = String(e);
@@ -141,27 +137,23 @@
 
     if (isPlaying && !frameInFlight && layout) {
       currentTime = Math.min(currentTime + dt * playbackSpeed, duration);
-      if (currentTime >= duration) {
-        isPlaying = false;
-      }
+      if (currentTime >= duration) isPlaying = false;
 
       frameInFlight = true;
       getFrame(currentTime)
         .then((fd) => {
           currentDrivers = fd.drivers;
-          carRenderer.update(fd.drivers);
-          if (focusedDriver) carRenderer.focusOnDriver(focusedDriver, sm);
+          renderer.update(fd.drivers);
+          if (focusedDriver) renderer.setFocus(focusedDriver);
           frameInFlight = false;
         })
-        .catch(() => {
-          frameInFlight = false;
-        });
+        .catch(() => { frameInFlight = false; });
     }
 
-    sm.render();
+    renderer.render();
   }
 
-  // ── Seek (scrubber) ───────────────────────────────────────────────────────
+  // ── Seek ──────────────────────────────────────────────────────────────────
   function handleSeek(e: CustomEvent<number>) {
     currentTime = e.detail;
     if (!frameInFlight && layout) {
@@ -169,18 +161,17 @@
       getFrame(currentTime)
         .then((fd) => {
           currentDrivers = fd.drivers;
-          carRenderer.update(fd.drivers);
+          renderer.update(fd.drivers);
           frameInFlight = false;
         })
-        .catch(() => {
-          frameInFlight = false;
-        });
+        .catch(() => { frameInFlight = false; });
     }
   }
 
   // ── Driver focus ──────────────────────────────────────────────────────────
   function handleDriverClick(e: CustomEvent<string>) {
     focusedDriver = focusedDriver === e.detail ? null : e.detail;
+    renderer.setFocus(focusedDriver);
   }
 </script>
 
@@ -213,7 +204,7 @@
       />
     </aside>
 
-    <!-- Three.js canvas -->
+    <!-- Canvas 2D rendering -->
     <div class="canvas-container" bind:this={containerEl}>
       <canvas bind:this={canvas}></canvas>
       {#if isLoading}
@@ -282,7 +273,7 @@
     padding: 0;
   }
   :global(body) {
-    background: #03010a;
+    background: #0f0f10;
     color: #e0e0e0;
     font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
     overflow: hidden;
@@ -300,17 +291,17 @@
     display: flex;
     align-items: center;
     gap: 16px;
-    height: 48px;
+    height: 44px;
     padding: 0 16px;
-    background: rgba(0, 0, 0, 0.6);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: #111214;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
     flex-shrink: 0;
     z-index: 10;
   }
   .logo {
-    font-size: 16px;
+    font-size: 14px;
     font-weight: 700;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.14em;
     color: #ff8000;
     flex-shrink: 0;
   }
@@ -318,9 +309,9 @@
     margin-left: auto;
   }
   .event-name {
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.5);
-    letter-spacing: 0.05em;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.4);
+    letter-spacing: 0.06em;
   }
 
   .main {
@@ -331,10 +322,10 @@
   }
 
   aside {
-    width: 180px;
+    width: 160px;
     flex-shrink: 0;
-    background: rgba(0, 0, 0, 0.4);
-    border-right: 1px solid rgba(255, 255, 255, 0.06);
+    background: #111214;
+    border-right: 1px solid rgba(255, 255, 255, 0.07);
     overflow-y: auto;
   }
 
@@ -342,6 +333,7 @@
     flex: 1;
     position: relative;
     overflow: hidden;
+    background: #0f0f10;
   }
   canvas {
     display: block;
@@ -353,8 +345,8 @@
   .right-panel {
     width: 280px;
     flex-shrink: 0;
-    background: rgba(0, 0, 0, 0.4);
-    border-left: 1px solid rgba(255, 255, 255, 0.06);
+    background: #111214;
+    border-left: 1px solid rgba(255, 255, 255, 0.07);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -362,14 +354,14 @@
   .tab-bar {
     display: flex;
     flex-shrink: 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
   }
   .tab-btn {
     flex: 1;
     padding: 8px 4px;
     background: none;
     border: none;
-    color: rgba(255, 255, 255, 0.35);
+    color: rgba(255, 255, 255, 0.3);
     font-family: inherit;
     font-size: 9px;
     font-weight: 700;
@@ -378,17 +370,9 @@
     border-bottom: 2px solid transparent;
     transition: color 0.15s, border-color 0.15s;
   }
-  .tab-btn:hover {
-    color: rgba(255, 255, 255, 0.7);
-  }
-  .tab-btn.active {
-    color: #ff8000;
-    border-bottom-color: #ff8000;
-  }
-  .tab-btn.active:last-child {
-    color: #27F4D2;
-    border-bottom-color: #27F4D2;
-  }
+  .tab-btn:hover { color: rgba(255, 255, 255, 0.65); }
+  .tab-btn.active { color: #ff8000; border-bottom-color: #ff8000; }
+  .tab-btn.active:last-child { color: #27F4D2; border-bottom-color: #27F4D2; }
   .tab-content {
     flex: 1;
     overflow: hidden;
@@ -403,26 +387,22 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    background: rgba(3, 1, 10, 0.85);
+    background: rgba(15, 15, 16, 0.88);
     gap: 16px;
     z-index: 20;
   }
   .spinner {
-    width: 40px;
-    height: 40px;
-    border: 3px solid rgba(255, 128, 0, 0.3);
+    width: 36px;
+    height: 36px;
+    border: 2px solid rgba(255, 128, 0, 0.25);
     border-top-color: #ff8000;
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
   }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
+  @keyframes spin { to { transform: rotate(360deg); } }
   .loading-overlay p {
-    font-size: 13px;
-    color: rgba(255, 255, 255, 0.6);
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.5);
   }
   .loading-overlay p.err {
     color: #ff5555;
@@ -436,8 +416,8 @@
     align-items: center;
     height: 100px;
     flex-shrink: 0;
-    background: rgba(0, 0, 0, 0.6);
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    background: #111214;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
     padding: 0 16px;
     gap: 24px;
     overflow: hidden;

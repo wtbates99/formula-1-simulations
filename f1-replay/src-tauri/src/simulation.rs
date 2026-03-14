@@ -4,6 +4,7 @@
 //! affect lap times and race outcomes.
 
 use crate::session::{DriverData, SessionData};
+use crate::types::{DriverComparison, LapDelta};
 use serde::{Deserialize, Serialize};
 
 // ── Parameter types ───────────────────────────────────────────────────────────
@@ -337,29 +338,6 @@ pub fn run_simulation(
 
 // ── Compare two drivers in same session ──────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DriverComparison {
-    pub driver_a: String,
-    pub driver_b: String,
-    pub lap_deltas: Vec<LapDelta>,
-    pub fastest_lap_a: f64,
-    pub fastest_lap_b: f64,
-    pub avg_lap_a: f64,
-    pub avg_lap_b: f64,
-    pub max_speed_a: f64,
-    pub max_speed_b: f64,
-    pub summary: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LapDelta {
-    pub lap_number: u32,
-    pub time_a: f64,
-    pub time_b: f64,
-    pub delta_s: f64,   // negative = A is faster
-    pub cumulative_delta_s: f64,
-}
-
 pub fn compare_drivers(
     session: &SessionData,
     driver_a_num: &str,
@@ -394,8 +372,8 @@ pub fn compare_drivers(
     let fastest_b = times_b.iter().cloned().fold(f64::INFINITY, f64::min);
     let avg_a = times_a.iter().sum::<f64>() / times_a.len().max(1) as f64;
     let avg_b = times_b.iter().sum::<f64>() / times_b.len().max(1) as f64;
-    let max_speed_a = extract_max_speed(a);
-    let max_speed_b = extract_max_speed(b);
+    let max_speed_a = extract_max_speed(a) as f32;
+    let max_speed_b = extract_max_speed(b) as f32;
 
     let winner = if fastest_a < fastest_b { &a.abbreviation } else { &b.abbreviation };
     let gap = (fastest_a - fastest_b).abs();

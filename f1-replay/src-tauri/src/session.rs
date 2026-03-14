@@ -216,6 +216,7 @@ pub fn load_session(
             y_min: -1722.0,
             y_max: 17775.0,
             duration_s,
+            lap_distance_m: 6201.0, // Las Vegas GP circuit length
         }
     };
 
@@ -364,7 +365,19 @@ fn build_track_layout(samples: &[RawSample], duration_s: f64) -> TrackLayout {
     let y_min = samples.iter().map(|s| s.y).fold(f32::INFINITY, f32::min);
     let y_max = samples.iter().map(|s| s.y).fold(f32::NEG_INFINITY, f32::max);
 
-    TrackLayout { center_line, x_min, x_max, y_min, y_max, duration_s }
+    // Estimate one-lap distance from arc length over first ~200 samples (single lap)
+    let lap_distance_m: f32 = {
+        let lap_end = samples.len().min(200);
+        let mut d = 0.0_f32;
+        for i in 1..lap_end {
+            let dx = samples[i].x - samples[i-1].x;
+            let dy = samples[i].y - samples[i-1].y;
+            d += (dx*dx + dy*dy).sqrt();
+        }
+        d
+    };
+
+    TrackLayout { center_line, x_min, x_max, y_min, y_max, duration_s, lap_distance_m }
 }
 
 // ── Driver name abbreviation ─────────────────────────────────────────────────

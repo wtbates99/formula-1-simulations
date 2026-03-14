@@ -1,5 +1,6 @@
 use crate::session::{load_session, get_frame_at, AppState};
-use crate::simulation::{self, SimulationScenario, SimulationResult, DriverComparison};
+use crate::simulation::{self, SimulationScenario, SimulationResult};
+use crate::telemetry_analysis;
 use crate::types::*;
 use duckdb::Connection;
 use parking_lot::Mutex;
@@ -243,4 +244,41 @@ pub async fn compare_drivers_cmd(
     let locked = state.lock();
     let session = locked.session.as_ref().ok_or_else(|| "No session loaded".to_string())?;
     simulation::compare_drivers(session, &driver_a, &driver_b)
+}
+
+// ── compare_laps_cmd ─────────────────────────────────────────────────────────
+
+/// Distance-normalised fastest-lap comparison with per-channel telemetry overlay.
+#[tauri::command]
+pub async fn compare_laps_cmd(
+    driver_a: String,
+    driver_b: String,
+    state: State<'_, AppStateHandle>,
+) -> Result<LapComparison, String> {
+    let locked = state.lock();
+    let session = locked.session.as_ref().ok_or_else(|| "No session loaded".to_string())?;
+
+    let a = session.drivers.iter().find(|d| d.driver_number == driver_a)
+        .ok_or_else(|| format!("Driver {driver_a} not found"))?;
+    let b = session.drivers.iter().find(|d| d.driver_number == driver_b)
+        .ok_or_else(|| format!("Driver {driver_b} not found"))?;
+
+    telemetry_analysis::compare_laps(a, b)
+}
+
+// ── get_aero_fit_cmd ──────────────────────────────────────────────────────────
+
+/// Fit Cd*A from braking telemetry for a single driver.
+#[tauri::command]
+pub async fn get_aero_fit_cmd(
+    driver_number: String,
+    state: State<'_, AppStateHandle>,
+) -> Result<AeroFitResult, String> {
+    let locked = state.lock();
+    let session = locked.session.as_ref().ok_or_else(|| "No session loaded".to_string())?;
+
+    let driver = session.drivers.iter().find(|d| d.driver_number == driver_number)
+        .ok_or_else(|| format!("Driver {driver_number} not found"))?;
+
+    Ok(telemetry_analysis::fit_cda(driver))
 }

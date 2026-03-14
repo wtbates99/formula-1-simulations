@@ -12,7 +12,8 @@ export interface FrameData     { time_s: number; drivers: DriverFrame[]; }
 export interface HeatCell      { x: number; y: number; speed_norm: number; }
 export interface TrackLayout   {
   center_line: [number, number][];
-  x_min: number; x_max: number; y_min: number; y_max: number; duration_s: number;
+  x_min: number; x_max: number; y_min: number; y_max: number;
+  duration_s: number; lap_distance_m: number;
 }
 export interface DriverTelemetry {
   driver_number: string; times: number[]; speeds: number[];
@@ -20,22 +21,75 @@ export interface DriverTelemetry {
 }
 export interface DriverMeta    { driver_number: string; abbreviation: string; team: string; }
 
+// ── Distance-normalised comparison types ──────────────────────────────────────
+export interface MiniSector {
+  distance_start: number;
+  distance_end: number;
+  delta_s: number;  // positive = A faster, negative = B faster
+}
+
+export interface LapComparison {
+  driver_a: string;
+  driver_b: string;
+  lap_number_a: number;
+  lap_number_b: number;
+  lap_time_a: number;
+  lap_time_b: number;
+  lap_time_delta: number;
+  distances: number[];
+  speeds_a: number[];
+  speeds_b: number[];
+  throttles_a: number[];
+  throttles_b: number[];
+  brakes_a: number[];
+  brakes_b: number[];
+  gears_a: number[];
+  gears_b: number[];
+  delta_time: number[];  // positive = A ahead
+  mini_sectors: MiniSector[];
+}
+
+export interface AeroFitResult {
+  driver_number: string;
+  cda: number;
+  c_roll: number;
+  r_squared: number;
+  sample_count: number;
+}
+
+export interface LapDelta {
+  lap_number: number; time_a: number; time_b: number;
+  delta_s: number; cumulative_delta_s: number;
+}
+
+export interface DriverComparison {
+  driver_a: string; driver_b: string;
+  fastest_lap_a: number; fastest_lap_b: number;
+  avg_lap_a: number; avg_lap_b: number;
+  max_speed_a: number; max_speed_b: number;
+  lap_deltas: LapDelta[];
+  summary: string;
+}
+
 // ── Tauri v2: snake_case Rust param names → camelCase in invoke() args ─────────
 
 export const getSessions       = () => invoke<SessionInfo[]>('get_sessions');
 
-// event_name → eventName,  session stays session
 export const loadSessionCmd    = (eventName: string, session: string) =>
   invoke<TrackLayout>('load_session_cmd', { eventName, session });
 
 export const getSpeedHeatmap   = () => invoke<HeatCell[]>('get_speed_heatmap');
 
-// time_s → timeS
 export const getFrame          = (timeS: number) =>
   invoke<FrameData>('get_frame', { timeS });
 
-// driver_number → driverNumber, time_start → timeStart, time_end → timeEnd
 export const getDriverTelemetry = (driverNumber: string, timeStart: number, timeEnd: number) =>
   invoke<DriverTelemetry>('get_driver_telemetry', { driverNumber, timeStart, timeEnd });
 
 export const getDriverMeta     = () => invoke<DriverMeta[]>('get_driver_meta');
+
+export const compareLapsCmd    = (driverA: string, driverB: string) =>
+  invoke<LapComparison>('compare_laps_cmd', { driverA, driverB });
+
+export const getAeroFitCmd     = (driverNumber: string) =>
+  invoke<AeroFitResult>('get_aero_fit_cmd', { driverNumber });
