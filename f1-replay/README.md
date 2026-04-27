@@ -1,7 +1,49 @@
-# Tauri + SvelteKit + TypeScript
+# F1 Replay
 
-This template should help get you started developing with Tauri, SvelteKit and TypeScript in Vite.
+F1 Replay is a Svelte and Tauri experiment for browser and desktop Formula 1
+telemetry visualization. It is part of the broader Formula 1 Simulations
+workspace and is intended for replay UI exploration rather than as a standalone
+published app.
 
-## Recommended IDE Setup
+## Requirements
 
-[VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer).
+- Node.js 18+
+- npm
+- Rust and the Tauri prerequisites for your operating system, if running the
+  desktop shell
+
+## Setup
+
+```bash
+npm install
+```
+
+## Web Development
+
+```bash
+npm run dev
+```
+
+## Desktop Development
+
+```bash
+npm run tauri dev
+```
+
+## Build
+
+```bash
+npm run build
+```
+
+For Tauri packaging:
+
+```bash
+npm run tauri build
+```
+
+## Validation
+
+```bash
+npm run check
+```

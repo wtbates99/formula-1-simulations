@@ -1,7 +1,7 @@
 {
   "name": "f1-replay",
   "version": "0.1.0",
-  "description": "",
+  "description": "Svelte and Tauri Formula 1 replay experiment using 3D race visualization.",
   "type": "module",
   "scripts": {
     "dev": "vite dev",
@@ -26,5 +26,8 @@
     "typescript": "~5.6.2",
     "vite": "^6.0.3",
     "@tauri-apps/cli": "^2"
+  },
+  "overrides": {
+    "cookie": "^0.7.2"
   }
 }

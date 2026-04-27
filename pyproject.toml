@@ -1,13 +1,14 @@
 [project]
 name = "formula-1-simulations"
 version = "0.1.0"
-description = "Add your description here"
+description = "FastF1 ingestion plus deterministic C++ and WebAssembly race simulation tooling."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "duckdb>=1.4.4",
   "fastf1>=3.8.1",
   "matplotlib>=3.10.8",
-  "mlflow>=3.10.0",
+  "mlflow>=3.11.1",
   "plotly>=6.6.0",
+  "tabletalk>=0.2.1",
 ]
