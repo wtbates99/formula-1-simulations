@@ -1,5 +1,6 @@
-use crate::session::{load_session, get_frame_at, AppState};
-use crate::simulation::{self, SimulationScenario, SimulationResult};
+use crate::race_analysis;
+use crate::session::{get_frame_at, load_session, AppState};
+use crate::simulation::{self, SimulationResult, SimulationScenario};
 use crate::telemetry_analysis;
 use crate::types::*;
 use duckdb::Connection;
@@ -12,14 +13,11 @@ pub type AppStateHandle = Arc<Mutex<AppState>>;
 // ── get_sessions ─────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn get_sessions(
-    state: State<'_, AppStateHandle>,
-) -> Result<Vec<SessionInfo>, String> {
+pub async fn get_sessions(state: State<'_, AppStateHandle>) -> Result<Vec<SessionInfo>, String> {
     let db_path = state.lock().db_path.clone();
 
     tokio::task::spawn_blocking(move || {
-        let conn = Connection::open(&db_path)
-            .map_err(|e| format!("Failed to open DuckDB: {e}"))?;
+        let conn = Connection::open(&db_path).map_err(|e| format!("Failed to open DuckDB: {e}"))?;
 
         // Try the sessions table first
         let primary_result = query_sessions_table(&conn);
@@ -52,7 +50,11 @@ fn query_sessions_table(conn: &Connection) -> Result<Vec<SessionInfo>, String> {
         let event_name: String = row.get(0).map_err(|e| format!("Col 0: {e}"))?;
         let session: String = row.get(1).map_err(|e| format!("Col 1: {e}"))?;
         let year: Option<i64> = row.get(2).ok();
-        sessions.push(SessionInfo { event_name, session, year });
+        sessions.push(SessionInfo {
+            event_name,
+            session,
+            year,
+        });
     }
 
     Ok(sessions)
@@ -70,12 +72,18 @@ fn query_sessions_fallback(conn: &Connection) -> Result<Vec<SessionInfo>, String
             .map_err(|e| format!("Prepare laps fallback: {e}"))?;
 
         let mut sessions = Vec::new();
-        let mut rows = stmt.query([]).map_err(|e| format!("Query laps fallback: {e}"))?;
+        let mut rows = stmt
+            .query([])
+            .map_err(|e| format!("Query laps fallback: {e}"))?;
 
         while let Some(row) = rows.next().map_err(|e| format!("Row: {e}"))? {
             let event_name: String = row.get(0).map_err(|e| format!("Col 0: {e}"))?;
             let session: String = row.get(1).map_err(|e| format!("Col 1: {e}"))?;
-            sessions.push(SessionInfo { event_name, session, year: None });
+            sessions.push(SessionInfo {
+                event_name,
+                session,
+                year: None,
+            });
         }
 
         Ok::<Vec<SessionInfo>, String>(sessions)
@@ -96,12 +104,18 @@ fn query_sessions_fallback(conn: &Connection) -> Result<Vec<SessionInfo>, String
         .map_err(|e| format!("Prepare pos fallback: {e}"))?;
 
     let mut sessions = Vec::new();
-    let mut rows = stmt.query([]).map_err(|e| format!("Query pos fallback: {e}"))?;
+    let mut rows = stmt
+        .query([])
+        .map_err(|e| format!("Query pos fallback: {e}"))?;
 
     while let Some(row) = rows.next().map_err(|e| format!("Row: {e}"))? {
         let event_name: String = row.get(0).map_err(|e| format!("Col 0: {e}"))?;
         let session: String = row.get(1).map_err(|e| format!("Col 1: {e}"))?;
-        sessions.push(SessionInfo { event_name, session, year: None });
+        sessions.push(SessionInfo {
+            event_name,
+            session,
+            year: None,
+        });
     }
 
     Ok(sessions)
@@ -117,11 +131,10 @@ pub async fn load_session_cmd(
 ) -> Result<TrackLayout, String> {
     let db_path = state.lock().db_path.clone();
 
-    let session_data = tokio::task::spawn_blocking(move || {
-        load_session(&db_path, &event_name, &session)
-    })
-    .await
-    .map_err(|e| format!("Task join error: {e}"))??;
+    let session_data =
+        tokio::task::spawn_blocking(move || load_session(&db_path, &event_name, &session))
+            .await
+            .map_err(|e| format!("Task join error: {e}"))??;
 
     let layout = session_data.track_layout.clone();
     state.lock().session = Some(session_data);
@@ -131,9 +144,7 @@ pub async fn load_session_cmd(
 // ── get_speed_heatmap ─────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn get_speed_heatmap(
-    state: State<'_, AppStateHandle>,
-) -> Result<Vec<HeatCell>, String> {
+pub async fn get_speed_heatmap(state: State<'_, AppStateHandle>) -> Result<Vec<HeatCell>, String> {
     let heatmap = state
         .lock()
         .session
@@ -147,10 +158,7 @@ pub async fn get_speed_heatmap(
 // ── get_frame ─────────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn get_frame(
-    time_s: f64,
-    state: State<'_, AppStateHandle>,
-) -> Result<FrameData, String> {
+pub async fn get_frame(time_s: f64, state: State<'_, AppStateHandle>) -> Result<FrameData, String> {
     let locked = state.lock();
     let session = locked
         .session
@@ -193,15 +201,20 @@ pub async fn get_driver_telemetry(
     let throttles: Vec<f32> = filtered.iter().map(|s| s.throttle).collect();
     let brakes: Vec<f32> = filtered.iter().map(|s| s.brake).collect();
 
-    Ok(DriverTelemetry { driver_number, times, speeds, gears, throttles, brakes })
+    Ok(DriverTelemetry {
+        driver_number,
+        times,
+        speeds,
+        gears,
+        throttles,
+        brakes,
+    })
 }
 
 // ── get_driver_meta ────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn get_driver_meta(
-    state: State<'_, AppStateHandle>,
-) -> Result<Vec<DriverMeta>, String> {
+pub async fn get_driver_meta(state: State<'_, AppStateHandle>) -> Result<Vec<DriverMeta>, String> {
     let locked = state.lock();
     let session = locked
         .session
@@ -229,7 +242,10 @@ pub async fn run_simulation(
     state: State<'_, AppStateHandle>,
 ) -> Result<SimulationResult, String> {
     let locked = state.lock();
-    let session = locked.session.as_ref().ok_or_else(|| "No session loaded".to_string())?;
+    let session = locked
+        .session
+        .as_ref()
+        .ok_or_else(|| "No session loaded".to_string())?;
     simulation::run_simulation(session, &scenario)
 }
 
@@ -242,7 +258,10 @@ pub async fn compare_drivers_cmd(
     state: State<'_, AppStateHandle>,
 ) -> Result<DriverComparison, String> {
     let locked = state.lock();
-    let session = locked.session.as_ref().ok_or_else(|| "No session loaded".to_string())?;
+    let session = locked
+        .session
+        .as_ref()
+        .ok_or_else(|| "No session loaded".to_string())?;
     simulation::compare_drivers(session, &driver_a, &driver_b)
 }
 
@@ -256,11 +275,20 @@ pub async fn compare_laps_cmd(
     state: State<'_, AppStateHandle>,
 ) -> Result<LapComparison, String> {
     let locked = state.lock();
-    let session = locked.session.as_ref().ok_or_else(|| "No session loaded".to_string())?;
+    let session = locked
+        .session
+        .as_ref()
+        .ok_or_else(|| "No session loaded".to_string())?;
 
-    let a = session.drivers.iter().find(|d| d.driver_number == driver_a)
+    let a = session
+        .drivers
+        .iter()
+        .find(|d| d.driver_number == driver_a)
         .ok_or_else(|| format!("Driver {driver_a} not found"))?;
-    let b = session.drivers.iter().find(|d| d.driver_number == driver_b)
+    let b = session
+        .drivers
+        .iter()
+        .find(|d| d.driver_number == driver_b)
         .ok_or_else(|| format!("Driver {driver_b} not found"))?;
 
     telemetry_analysis::compare_laps(a, b)
@@ -275,10 +303,28 @@ pub async fn get_aero_fit_cmd(
     state: State<'_, AppStateHandle>,
 ) -> Result<AeroFitResult, String> {
     let locked = state.lock();
-    let session = locked.session.as_ref().ok_or_else(|| "No session loaded".to_string())?;
+    let session = locked
+        .session
+        .as_ref()
+        .ok_or_else(|| "No session loaded".to_string())?;
 
-    let driver = session.drivers.iter().find(|d| d.driver_number == driver_number)
+    let driver = session
+        .drivers
+        .iter()
+        .find(|d| d.driver_number == driver_number)
         .ok_or_else(|| format!("Driver {driver_number} not found"))?;
 
     Ok(telemetry_analysis::fit_cda(driver))
+}
+
+// ── get_race_analysis ───────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_race_analysis(state: State<'_, AppStateHandle>) -> Result<RaceAnalysis, String> {
+    let locked = state.lock();
+    let session = locked
+        .session
+        .as_ref()
+        .ok_or_else(|| "No session loaded".to_string())?;
+    Ok(race_analysis::analyze_race(session))
 }

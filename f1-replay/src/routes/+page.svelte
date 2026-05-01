@@ -15,6 +15,7 @@
   import PlaybackControls from '$lib/components/PlaybackControls.svelte';
   import SimulationPanel from '$lib/components/SimulationPanel.svelte';
   import ComparisonPanel from '$lib/components/ComparisonPanel.svelte';
+  import AnalysisPanel from '$lib/components/AnalysisPanel.svelte';
 
   let canvas: HTMLCanvasElement;
   let containerEl: HTMLDivElement;
@@ -49,8 +50,9 @@
   let frameInFlight = false;
 
   // Right panel tab
-  type RightTab = 'whatif' | 'compare';
-  let rightTab: RightTab = 'whatif';
+  type RightTab = 'analyze' | 'whatif' | 'compare';
+  let rightTab: RightTab = 'analyze';
+  let analysisRefreshKey = '';
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
   onMount(() => {
@@ -120,6 +122,7 @@
       const fd = await getFrame(0);
       currentDrivers = fd.drivers;
       renderer.update(fd.drivers);
+      analysisRefreshKey = `${info.event_name}:${info.session}:${Date.now()}`;
 
     } catch (e: any) {
       loadError = String(e);
@@ -224,6 +227,11 @@
       <div class="tab-bar">
         <button
           class="tab-btn"
+          class:active={rightTab === 'analyze'}
+          on:click={() => rightTab = 'analyze'}
+        >ANALYZE</button>
+        <button
+          class="tab-btn"
           class:active={rightTab === 'whatif'}
           on:click={() => rightTab = 'whatif'}
         >WHAT IF</button>
@@ -234,7 +242,9 @@
         >COMPARE</button>
       </div>
       <div class="tab-content">
-        {#if rightTab === 'whatif'}
+        {#if rightTab === 'analyze'}
+          <AnalysisPanel refreshKey={analysisRefreshKey} />
+        {:else if rightTab === 'whatif'}
           <SimulationPanel
             {driverMeta}
             {focusedDriver}
@@ -372,6 +382,7 @@
   }
   .tab-btn:hover { color: rgba(255, 255, 255, 0.65); }
   .tab-btn.active { color: #ff8000; border-bottom-color: #ff8000; }
+  .tab-btn.active:first-child { color: #ffe100; border-bottom-color: #ffe100; }
   .tab-btn.active:last-child { color: #27F4D2; border-bottom-color: #27F4D2; }
   .tab-content {
     flex: 1;

@@ -70,6 +70,53 @@ export interface DriverComparison {
   lap_deltas: LapDelta[];
   summary: string;
 }
+export interface RaceAnalysis {
+  event_name: string;
+  session: string;
+  driver_count: number;
+  valid_lap_count: number;
+  fastest_driver: string | null;
+  fastest_lap_s: number | null;
+  median_race_pace_s: number | null;
+  drivers: DriverAnalysis[];
+  stints: StintAnalysis[];
+  insights: RaceInsight[];
+}
+export interface DriverAnalysis {
+  driver_number: string;
+  abbreviation: string;
+  team: string;
+  final_position: number;
+  positions_gained: number;
+  valid_laps: number;
+  fastest_lap_s: number | null;
+  median_lap_s: number | null;
+  consistency_s: number | null;
+  max_speed_kmh: number;
+  avg_speed_kmh: number;
+  avg_throttle_pct: number;
+  avg_brake_pct: number;
+  drs_usage_pct: number;
+  pit_laps: number[];
+  performance_score: number;
+}
+export interface StintAnalysis {
+  driver_number: string;
+  start_lap: number;
+  end_lap: number;
+  compound: string;
+  laps: number;
+  avg_lap_s: number | null;
+  tyre_life_start: number;
+  tyre_life_end: number;
+}
+export interface RaceInsight {
+  kind: string;
+  title: string;
+  detail: string;
+  driver_number: string | null;
+  severity: number;
+}
 
 // ── Tauri v2: snake_case Rust param names → camelCase in invoke() args ─────────
 
@@ -93,3 +140,6 @@ export const compareLapsCmd    = (driverA: string, driverB: string) =>
 
 export const getAeroFitCmd     = (driverNumber: string) =>
   invoke<AeroFitResult>('get_aero_fit_cmd', { driverNumber });
+
+export const getRaceAnalysis   = () =>
+  invoke<RaceAnalysis>('get_race_analysis');

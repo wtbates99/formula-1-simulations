@@ -1,14 +1,15 @@
-mod types;
-mod interpolate;
+mod commands;
 mod heatmap;
+mod interpolate;
+mod race_analysis;
 mod session;
 mod simulation;
 mod telemetry_analysis;
-mod commands;
+mod types;
 
 use parking_lot::Mutex;
-use std::sync::Arc;
 use session::AppState;
+use std::sync::Arc;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -28,6 +29,7 @@ pub fn run() {
             commands::compare_drivers_cmd,
             commands::compare_laps_cmd,
             commands::get_aero_fit_cmd,
+            commands::get_race_analysis,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

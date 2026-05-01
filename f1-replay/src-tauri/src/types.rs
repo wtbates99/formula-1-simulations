@@ -153,3 +153,60 @@ pub struct LapDelta {
     pub delta_s: f64,
     pub cumulative_delta_s: f64,
 }
+
+// ── Race analysis engine ────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RaceAnalysis {
+    pub event_name: String,
+    pub session: String,
+    pub driver_count: usize,
+    pub valid_lap_count: usize,
+    pub fastest_driver: Option<String>,
+    pub fastest_lap_s: Option<f64>,
+    pub median_race_pace_s: Option<f64>,
+    pub drivers: Vec<DriverAnalysis>,
+    pub stints: Vec<StintAnalysis>,
+    pub insights: Vec<RaceInsight>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DriverAnalysis {
+    pub driver_number: String,
+    pub abbreviation: String,
+    pub team: String,
+    pub final_position: u8,
+    pub positions_gained: i16,
+    pub valid_laps: usize,
+    pub fastest_lap_s: Option<f64>,
+    pub median_lap_s: Option<f64>,
+    pub consistency_s: Option<f64>,
+    pub max_speed_kmh: f32,
+    pub avg_speed_kmh: f32,
+    pub avg_throttle_pct: f32,
+    pub avg_brake_pct: f32,
+    pub drs_usage_pct: f32,
+    pub pit_laps: Vec<u32>,
+    pub performance_score: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StintAnalysis {
+    pub driver_number: String,
+    pub start_lap: u32,
+    pub end_lap: u32,
+    pub compound: String,
+    pub laps: usize,
+    pub avg_lap_s: Option<f64>,
+    pub tyre_life_start: u8,
+    pub tyre_life_end: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RaceInsight {
+    pub kind: String,
+    pub title: String,
+    pub detail: String,
+    pub driver_number: Option<String>,
+    pub severity: f32,
+}
